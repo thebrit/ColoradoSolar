@@ -8,6 +8,11 @@
 # Modifications by Gary Atkinson - Oct 2011			#
 #								#
 #################################################################
+#		     							#
+# Modifications by Gary Atkinson - Mar 2013			#
+#	Due to zimbra 8+ changes to ldap database 		#
+#################################################################
+
 
 # script must be ran as root
 
@@ -82,11 +87,33 @@ if [ -d $REMOVEDAYBEFORE ]; then
    rm -rf $REMOVEDAYBEFORE
 fi
 log "Creating directory $TODAYSDIR..."
+
+
 #rsync -aHK --delete --exclude log/ /opt/zimbra/ $TODAYSDIR/zimbra
 #rsync -aHK --delete --exclude log/ /opt/zimbra $TODAYSDIR
-rsync -aHK --delete $ZHOME $TODAYSDIR
+
+#try not to copy zmstat
+#modified mar 13 to exclude the sparse file data.mdb
+#rsync -aHK --delete --exclude zmstat/ $ZHOME $TODAYSDIR
+rsync -aHK --delete --exclude zmstat/ --exclude 'data.mdb' $ZHOME $TODAYSDIR
 
 #rsync -aHK --delete --exclude log/ /opt/zimbra/ /media/backup/zimbra
+
+#before rsync create LDIF file of ldap database in zimbra/data/ldap/mdb/db - mar 13
+#must be zimbra user
+#log "Creating LDIF from ldap database..."
+#su - zimbra -c "/opt/zimbra/libexec/zmslapcat /opt/zimbra/data/ldap/mdb/db"
+
+
+log "Using mdb_copy to backup ldap database..."
+
+su - zimbra -c "/opt/zimbra/openldap-2.4.33.3z/bin/mdb_copy /opt/zimbra/data/ldap/mdb/db $TODAYSDIR/zimbra/data/ldap/mdb/db"
+
+#change the file permissions
+chmod 600 $TODAYSDIR/zimbra/data/ldap/mdb/db/data.mdb
+
+log "done mdb_copy..." 
+
 
 # Restart Zimbra Services
 su - zimbra -c "/opt/zimbra/bin/zmcontrol start"
@@ -110,7 +137,17 @@ fi
 log "Sending backup files to cse10 ..."
 #rsync -avH --delete --force -e "ssh -i /root/.ssh/zimbra_trans" /media/backup/zimbra root@192.168.0.4:/opt/
 #rsync -avH --delete --force -e "ssh -i /root/.ssh/zimbra_trans" $TODAYSDIR/zimbra root@192.168.0.4:/opt/
+
 rsync -avH --delete --force -e "ssh -i /root/.ssh/zimbra_trans" $TODAYSDIR/zimbra root@192.168.0.4:/opt/
+
+#modified mar 13 update cse10 data.mdb with current ldap information
+#log "Modifying cse10 zimbra ldap database..."
+
+#ssh -i /root/.ssh/zimbra_trans root@192.168.0.4 'mv /opt/zimbra/data/ldap/mdb/db/data.mdb /opt/zimbra/data/ldap/mdb/db/data.mdb.old'
+#ssh -i /root/.ssh/zimbra_trans root@192.168.0.4 "su - zimbra -c '/opt/zimbra/openldap/sbin/slapadd -q -b "" -F /opt/zimbra/data/ldap/config -l /opt/zimbra/data/ldap/mdb/db/ldap.bak'"
+
+
+
 log "Zimbra transfer complete ..."
 rsync -avH --delete --force --exclude svn/ --exclude tmp/ --exclude mysql_backups/ -e "ssh -i /root/.ssh/zimbra_trans" /data/ root@192.168.0.4:/data/
 log "Copying complete to cse10 ..."
@@ -136,7 +173,7 @@ svnadmin dump /data/svn/main_repo > $BACKUP/svn/cosolar.dmp
 
 # rsync directories
 rsync -a --delete --exclude svn/ --exclude tmp/ /data/ $BACKUP/data/
-rsync -a /root/Desktop/'System Rebuild'/ $BACKUP/'System Rebuild'/
+rsync -a --delete /root/Desktop/'System Rebuild'/ $BACKUP/'System Rebuild'/
 rsync -a $ZBACKUP_SCRIPT/ $BACKUP/scripts/
 
 if [ $DAY == $BACKUPTOUSB ]; then
@@ -151,7 +188,9 @@ if [ $DAY == $BACKUPTOUSB ]; then
 
 #tar vcjf /media/usbdisk/full_cs1.02-26-12test.tar.bz2 /media/backup/ --exclude /media/backup/mailbox_extract --exclude /media/backup/opt_zimbra.02-25-2012  --exclude /media/backup/opt_zimbra.02-26-2012
 
-      tar cjf /media/usbdisk/full_cs1.`date +%d-%b-%y`.tar.bz2 $BACKUP/ --exclude $BACKUP/mailbox_extract --exclude $YESTERDAYDIR --exclude $TODAYSDIR
+#      tar cjf /media/usbdisk/full_cs1.`date +%d-%b-%y`.tar.bz2 $BACKUP/ --exclude $BACKUP/mailbox_extract --exclude $YESTERDAYDIR --exclude $TODAYSDIR
+	#change logic 6/21/12
+      tar cjf /media/usbdisk/full_cs1.`date +%d-%b-%y`.tar.bz2 $BACKUP/ --exclude $BACKUP/mailbox_extract --exclude $BACKUP/zimbra_files
 #   else
 #      log "USB Drive not mounted...transfer of files failed"
 #   fi
